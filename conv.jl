@@ -40,9 +40,11 @@ randinit(shape...) = randn(Float32, shape...)
 function Convolutional()
     return Chain(
         Conv((4, 4), 3 => 3*32, stride=2, pad=1, init=randinit),
+        MaxPool((4, 4)),
         x->leakyrelu.(x, 0.2f0),
         Dropout(0.2),
         Conv((4, 4), 3*32 => 3*64, stride=2, pad=1, init=randinit),
+        MaxPool((4, 4)),
         x->leakyrelu.(x, 0.2f0),
         Dropout(0.2),
     )
@@ -53,11 +55,12 @@ dummyfile = test_files[1]
 dummy_output = convlayers(reshape(data, targetsize..., 3, 1))
 
 function EndLayers(osize)
+    # @info osize
     return Chain(
         x->reshape(x, osize, :),
-        Dense(osize, 5*16),
-        Dense(5*16, 5*4),
-        Dense(5*4, 5),
+        Dense(osize, 5*32),
+        Dense(5*32, 5*8),
+        Dense(5*8, 5),
     )
 end
 convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu

@@ -23,7 +23,7 @@ Base.@kwdef struct HyperParams
     lr::Float32 = 0.0002
 end
 
-targetsize = (128, 128)
+targetsize = (256, 256)
 
 
 hparams = HyperParams()

@@ -4,3 +4,6 @@ flower
 output.gif
 runs
 preprocessed
+.ipynb_checkpoints
+*.log
+*.tar.gz

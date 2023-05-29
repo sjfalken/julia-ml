@@ -10,7 +10,7 @@ using FixedPointNumbers: N0f8
 using Random: shuffle
 
 datadir = "flower"
-targetsize = (128, 128)
+targetsize = (256, 256)
 
 function crop_and_resize_image(image)
     if (size(image, 1) < size(image, 2))
@@ -48,14 +48,14 @@ function Base.iterate(iter::MyImageIterator, state=1)
 
     img = get_image(iter.classes[state], iter.images[state])
     # img = nothing
-    while state <= length(iter) && is_too_small(img)
-        @info "Skipping state $state"
-        state += 1
-        if state > length(iter)
-            return nothing
-        end
-        img = get_image(iter.classes[state], iter.images[state])
-    end
+    # while state <= length(iter) && is_too_small(img)
+    #     @info "Skipping state $state"
+    #     state += 1
+    #     if state > length(iter)
+    #         return nothing
+    #     end
+    #     img = get_image(iter.classes[state], iter.images[state])
+    # end
     cropped = crop_and_resize_image(img)
     # result = convert(Array{Float32, 3}, permutedims(channelview(cropped), (2, 3, 1)))
     result = permutedims(channelview(cropped), (2, 3, 1))

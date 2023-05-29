@@ -35,9 +35,9 @@ hparams = HyperParams()
 filenames = cd(readdir, "preprocessed")
 
 # it = images()
-filenames = shuffle(filenames)
+filenames = shuffle(filenames)[1:500]
 # train_count = convert(Int, round(length(filenames) * 0.1))
-train_count = convert(Int, round(length(filenames) * 0.05))
+train_count = convert(Int, round(length(filenames) * 0.8))
 
 train_files = filenames[1:train_count]
 test_files = filenames[train_count+1:end]
@@ -55,10 +55,10 @@ test_files = filenames[train_count+1:end]
 randinit(shape...) = randn(Float32, shape...)
 function Convolutional()
     return Chain(
-        Conv((4, 4), 3 => 3*32, stride=2, pad=1, init=randinit, groups=3),
+        Conv((4, 4), 3 => 3*32, stride=2, pad=1, init=randinit),
         x->leakyrelu.(x, 0.2f0),
         Dropout(0.2),
-        Conv((4, 4), 3*32 => 3*64, stride=2, pad=1, init=randinit, groups=3),
+        Conv((4, 4), 3*32 => 3*64, stride=2, pad=1, init=randinit),
         x->leakyrelu.(x, 0.2f0),
         Dropout(0.2),
     )
@@ -71,15 +71,14 @@ dummyfile = test_files[1]
 @load "preprocessed/$dummyfile" data onehotlabel
 dummy_output = convlayers(reshape(data, 128, 128, 3, 1))
 
-function EndLayers()
-    osize = reduce(*, size(dummy_output)[1:3])
+function EndLayers(osize)
     return Chain(
         x->reshape(x, osize, :),
-        Dense(osize, 10),
+        Dense(osize, 5),
     )
 end
-
-convmodel = Chain(Convolutional(), EndLayers()) |> gpu
+convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
+# convmodel = Convolutional() |> gpu
 # convmodel = lenet = Chain(
 #     Conv((5, 5), 1=>6, relu),
 #     MaxPool((2, 2)),
@@ -91,59 +90,59 @@ convmodel = Chain(Convolutional(), EndLayers()) |> gpu
 #     Dense(84 => 10),
 # ) |> gpu
 
-function getloss(model, data, label)
-    
-    output = model(data)
-
-    # one = logitbinarycrossentropy(output[findall(x->x==1, label)], 1)
-    # zero = logitbinarycrossentropy(output[findall(x->x==0, label)], 0)
-
-
-    return logitcrossentropy(output, label)
-end
-
-
 function files_to_tensors(files) 
     # file_chunks = chunk(files;size=batchsize)
 
-    function get_tensors(files)
+    # function get_tensors(files)
 
-        resultdata = Array{N0f8, 4}(undef, (128, 128, 3, 0))
-        labels = Array{Int, 2}(undef, (5, 0))
-        for file in files
-            @load "preprocessed/$file" data onehotlabel
-            resultdata = cat(resultdata, data; dims=4)
-            labels = cat(labels, onehotlabel; dims=2)
-        end
+    #     resultdata = Array{Float32, 4}(undef, (128, 128, 3, 0))
+    #     labels = Array{Int, 2}(undef, (5, 0))
+    #     @showprogress for file in files
+    #         resultdata = cat(resultdata, data; dims=4)
+    #         labels = cat(labels, onehotlabel; dims=2)
+    #         # @info "dims " * string(size(resultdata))
+    #     end
 
-        return resultdata, labels
-    end
+    #     return resultdata, labels
+    # end
     
-    get_tensors(files)
+    @load "preprocessed/images.jld2" data labels
+    return data,labels
 end
 
 
 function do_training()
+    @info "Starting training"
     opt = Flux.setup(Adam(hparams.lr), convmodel)
     # train_tensor = reduce(cat, [])
     # @info size(train_tensor)
     # filename_chunks = chunk(train_files; size=hparams.batch_size)
-    loader = Flux.DataLoader(files_to_tensors(train_files); batchsize=hparams.batch_size) |> gpu
+    @info "Loading data..."
+    
+    data, labels = files_to_tensors(train_files)
+    @info "Data is size " *  string(size(data))
+    @info "Labels is size " *  string(size(labels))
+
+    loader = Flux.DataLoader((data, labels); batchsize=hparams.batch_size, shuffle=true) |> gpu
     function mycb()
-        # (x,y) = only(loader(test_dataset; batchsize=length(test_dataset)))  # make one big batch
-        # ŷ = convmodel(x)
-        # loss = Flux.logitcrossentropy(ŷ, y)  # did not include softmax in the model
-        # acc = round(100 * mean(Flux.onecold(ŷ) .== Flux.onecold(y)); digits=2)
+        data, labels = files_to_tensors(test_files)
+        (x,y) = only(Flux.DataLoader((data, labels); batchsize=length(test_files)) |> gpu)  # make one big batch
+        ŷ = convmodel(x)
+        loss = Flux.logitcrossentropy(ŷ, y)  # did not include softmax in the model
+        acc = round(100 * mean(Flux.onecold(ŷ) .== Flux.onecold(y)); digits=2)
         # # (; loss, acc, split=data.split)  # return a NamedTuple
         # data_batches = files_to_batches(train_files, hparams.batch_size)
-        # @info "Loss: $loss; accuracy: $acc" @save "runs/convmodel.jld2" convmodel
+        @info "Loss: $loss; accuracy: $acc"
+        @save "runs/convmodel.jld2" convmodel
     end
     cb = Flux.throttle(mycb, 10)
     for ep in 1:hparams.epochs
         @info "Epoch $ep"
-        @showprogress for d in loader
-            ∂L∂m = gradient(getloss, convmodel, d...)[1]
-            update!(opt, convmodel, ∂L∂m)
+        @showprogress for (x,y) in loader
+            # @info "test loop"
+            # @info size(x) size(y)
+            grads = gradient(m -> logitcrossentropy(m(x), y), convmodel)[1]
+            update!(opt, convmodel, grads)
         end
         cb()
         # train!(getloss, convmodel, loader(train_dataset), opt, cb = Flux.throttle(mycb, 5))

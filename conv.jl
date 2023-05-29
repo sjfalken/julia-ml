@@ -97,7 +97,8 @@ function files_to_tensors(files, batchsize)
 
         resultdata = Array{Float32, 4}(undef, (128, 128, 3, 0))
         labels = Array{Int, 2}(undef, (5, 0))
-        @showprogress for file in files
+        for file in files
+            @info "File $file"
             @load "preprocessed/$file" data label
             resultdata = cat(resultdata, data; dims=4)
             labels = cat(labels, label; dims=2)
@@ -123,9 +124,10 @@ function do_training()
     # @info "Data is size " *  string(size(data))
     # @info "Labels is size " *  string(size(labels))
     data = files_to_tensors(train_files, hparams.batch_size)
+    test_data = only(files_to_tensors(test_files, length(test_files)))
     # loader = Flux.DataLoader((data, labels); batchsize=hparams.batch_size, shuffle=true) |> gpu
     function mycb()
-        (x,y) = only(files_to_tensors(test_files, length(test_files))) |> gpu
+        (x,y) = test_data
         ŷ = convmodel(x)
         loss = Flux.logitcrossentropy(ŷ, y)  # did not include softmax in the model
         acc = round(100 * mean(Flux.onecold(ŷ) .== Flux.onecold(y)); digits=2)

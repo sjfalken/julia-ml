@@ -84,17 +84,18 @@ end
 
 function run() 
     count = 0
-    data = Array{Float32, 4}(undef, (128, 128, 3, 0))
-    labels = Array{Int, 2}(undef, (5, 0))
+    # data = Array{Float16, 4}(undef, (128, 128, 3, 0))
+    # labels = Array{UInt8, 2}(undef, (5, 0))
     @showprogress for img in images()
-        onedata = img[1]
+        data = img[1]
         lbl = img[2]
-        onehotlabel = onehot(lbl, sort(cd(readdir, datadir)))
-
-        data = cat(data, onedata; dims=4)
-        labels = cat(labels, onehotlabel; dims=2)
+        label = onehot(lbl, sort(cd(readdir, datadir)))
+        @save "preprocessed/$count.jld2" data label
+        
+        count += 1
+        # data = cat(data, onedata; dims=4)
+        # labels = cat(labels, onehotlabel; dims=2)
     end
-    @save "preprocessed/images.jld2" data labels
 end
 
 run()

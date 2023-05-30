@@ -25,16 +25,39 @@ end
 
 targetsize = (256, 256)
 
+function files_to_tensors(imgs, batchsize) 
+    chunks = chunk(imgs;size=batchsize)
+
+    function get_tensors(chunk)
+        # data, label = img
+
+        datas = Array{Float32, 4}(undef, (targetsize..., 3, 0))
+        labels = Array{Int, 2}(undef, (5, 0))
+        for item in chunk 
+            data, label = item
+            datas = cat(datas, data; dims=4)
+            labels = cat(labels, label; dims=2)
+        end
+
+        return datas, labels
+    end
+    
+    [get_tensors(chunk) |> gpu for chunk in chunks]
+end
+
+@load "preprocessed/images.jld2" imgs
 
 hparams = HyperParams()
 
-filenames = cd(readdir, "preprocessed")
 
-filenames = shuffle(filenames)
-train_count = convert(Int, round(length(filenames) * 0.8))
 
-train_files = filenames[1:train_count]
-test_files = filenames[train_count+1:end]
+train_count = convert(Int, round(length(imgs) * 0.8))
+
+train = imgs[1:train_count]
+test = imgs[train_count+1:end]
+
+data = files_to_tensors(train, hparams.batch_size)
+test_data = only(files_to_tensors(test, length(imgs) - train_count))
 
 randinit(shape...) = randn(Float32, shape...)
 function Convolutional()
@@ -50,9 +73,7 @@ function Convolutional()
     )
 end
 convlayers = Convolutional()
-dummyfile = test_files[1]
-@load "preprocessed/$dummyfile" data label
-dummy_output = convlayers(reshape(data, targetsize..., 3, 1))
+dummy_output = convlayers(reshape(imgs[1][1], targetsize..., 3, 1))
 
 function EndLayers(osize)
     # @info osize
@@ -65,33 +86,11 @@ function EndLayers(osize)
 end
 convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
 
-function files_to_tensors(files, batchsize) 
-    file_chunks = chunk(files;size=batchsize)
-
-    function get_tensors(files)
-
-        resultdata = Array{Float32, 4}(undef, (targetsize..., 3, 0))
-        labels = Array{Int, 2}(undef, (5, 0))
-        for file in files
-            @info "File $file"
-            @load "preprocessed/$file" data label
-            resultdata = cat(resultdata, data; dims=4)
-            labels = cat(labels, label; dims=2)
-            # @info "dims " * string(size(resultdata))
-        end
-
-        return resultdata, labels
-    end
-    
-    [get_tensors(chunk) |> gpu for chunk in file_chunks]
-end
 
 
 function do_training()
     @info "Starting training"
     opt = Flux.setup(Adam(hparams.lr), convmodel)
-    data = files_to_tensors(train_files, hparams.batch_size)
-    test_data = only(files_to_tensors(test_files, length(test_files)))
     function mycb()
         (x,y) = test_data
         ŷ = convmodel(x)

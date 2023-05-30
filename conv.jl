@@ -1,6 +1,6 @@
 using Pkg
 Pkg.activate(".")
-# Pkg.add(["Images", "Flux", "MLDatasets", "CUDA", "Parameters", "ProgressMeter"])
+Pkg.add(["Images", "Flux", "MLDatasets", "CUDA", "Parameters", "ProgressMeter"])
 using Random: shuffle
 using Base.Iterators: partition
 using Flux
@@ -31,8 +31,8 @@ function files_to_tensors(imgs, batchsize)
     function get_tensors(chunk)
         # data, label = img
 
-        datas = Array{Float32, 4}(undef, (targetsize..., 3, 0))
-        labels = Array{Int, 2}(undef, (5, 0))
+        datas = Array{Float16, 4}(undef, (targetsize..., 3, 0))
+        labels = Array{UInt8, 2}(undef, (5, 0))
         for item in chunk 
             data, label = item
             datas = cat(datas, data; dims=4)

@@ -9,8 +9,7 @@
                             "options": "--privileged",
                             "volumes": [
                                 "/var/lib/nvidia/lib64:/usr/local/nvidia/lib64",
-                                "/var/lib/nvidia/bin:/usr/local/nvidia/bin",
-                                "/mnt/disks/sjfalken-learning"
+                                "/var/lib/nvidia/bin:/usr/local/nvidia/bin"
                             ]
 
 
@@ -23,12 +22,7 @@
                     }
                 ],
                 "volumes": [
-                    {
-                        "gcs": {
-                            "remotePath": "sjfalken-learning"
-                        },
-                        "mountPath": "/mnt/disks/sjfalken-learning"
-                    }
+
                 ],
                 "computeResource": {
                     "cpuMilli": 4000,

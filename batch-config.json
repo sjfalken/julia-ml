@@ -4,19 +4,12 @@
             "taskSpec": {
                 "runnables": [
                     {
-                        "container": {
-                            "imageUri": "us-east4-docker.pkg.dev/rave-367918/mydockerrepo/hello:testing",
-                            "options": "--privileged",
-                            "volumes": [
-                                "/var/lib/nvidia/lib64:/usr/local/nvidia/lib64",
-                                "/var/lib/nvidia/bin:/usr/local/nvidia/bin"
-                            ]
-
-
+                        "script": {
+                            "text": "sudo docker pull $IMAGE && sudo docker run --rm --runtime=nvidia --gpus all $IMAGE"
                         },
                         "environment": {
                             "variables": {
-                                "JOBCMD": "echo hello steppy"
+                                "IMAGE": "us-east4-docker.pkg.dev/rave-367918/mydockerrepo/hello:testing"
                             }
                         }
                     }
@@ -25,8 +18,8 @@
 
                 ],
                 "computeResource": {
-                    "cpuMilli": 4000,
-                    "memoryMib": 20000
+                    "cpuMilli": 8000,
+                    "memoryMib": 30000
                 }
             },
             "taskCount": 1,
@@ -36,16 +29,8 @@
     "allocationPolicy": {
         "instances": [
             {
-                "installGpuDrivers": true,
-                "policy": {
-                    "machineType": "n1-standard-8",
-                    "accelerators": [
-                        {
-                            "type": "nvidia-tesla-t4",
-                            "count": 1
-                        }
-                    ]
-                }
+                "installGpuDrivers": false,
+                "instanceTemplate": ""
             }
         ],
         "location": {

@@ -8,6 +8,7 @@ using Flux.MLUtils: chunk, batch, DataLoader
 using Flux.Optimise: update!, train!
 using Flux.Losses: logitcrossentropy
 using Images
+using ColorTypes: RGB
 using MLDatasets
 using Statistics
 using Printf
@@ -16,15 +17,25 @@ using ProgressMeter: @showprogress
 using JLD2
 using FixedPointNumbers: N0f8
 using OneHotArrays
-using Images: load as imgload
+using Images: load as imgload, save as imgsave
 using CUDA
 @assert CUDA.functional(true)
 
 datadir = "flower"
-targetsize = (224, 224)
+targetsize = (300, 300)
+# num_images = 5000
+num_images = 5000
 
-if findfirst("runs" .== readdir(".")) === nothing
+if !any("runs" .== readdir("."))
     mkdir("runs")
+end
+
+if !any("output" .== readdir("."))
+    mkdir("output")
+end
+
+if !any("flower" .== readdir("."))
+    @warn "flower dataset missing"
 end
 
 function crop_and_resize_image(image)
@@ -73,10 +84,22 @@ function Base.iterate(iter::MyImageIterator, state=1)
     # end
     cropped = crop_and_resize_image(img)
     # result = convert(Array{Float32, 3}, permutedims(channelview(cropped), (2, 3, 1)))
+
     result = permutedims(channelview(cropped), (2, 3, 1))
     
     # @info state, iter.classes[state]
     (result, iter.classes[state]), state+1
+end
+
+function get_img_from_data(data)
+    @assert all(size(data) .== (targetsize..., 3))
+
+    data = convert(Array{N0f8}, clamp.(data .+ 0.5, 0, 1))
+    data = permutedims(data, (3, 1, 2))
+
+    # imgsave(path, colorview(RGB, data))
+    return colorview(RGB, data)
+    
 end
 
 
@@ -105,7 +128,12 @@ function gen_dataset()
     labels = OneHotVector{UInt32}[]
 
 
+    count = 0
     @showprogress for img in images()
+        if count >= num_images
+            break
+        end
+        count += 1
         data = img[1]
         lbl = img[2]
         label = Flux.onehot(lbl, sort(cd(readdir, datadir)))
@@ -121,8 +149,8 @@ function gen_dataset()
 end
 
 Base.@kwdef struct HyperParams
-    batch_size::Int = 128
-    epochs::Int = 100
+    batch_size::Int = 32
+    epochs::Int = 300
     verbose_freq::Int = 1000
     lr::Float32 = 0.0002
 end
@@ -151,7 +179,7 @@ end
 @info "Loading data..."
 # @load "preprocessed/images.jld2" imgs
 data, labels = gen_dataset()
-data = Flux.normalise(data)
+data = data .- 0.5f0 # normalize
 
 hparams = HyperParams()
 
@@ -187,6 +215,8 @@ end
 convlayers = Convolutional()
 dummy_output = convlayers(data[:, :, :, 1:2])
 
+# save_example_img("example.png", data[:, :, :, 1])
+
 function EndLayers(osize)
     @info "Endlayers input size: $osize"
     return Chain(
@@ -196,37 +226,82 @@ function EndLayers(osize)
         Dense(osize, 5),
     )
 end
-if "convmodel.jld2" in cd(readdir, "runs")
-    @info "starting with existing model"
-    @load "runs/convmodel.jld2" convmodel
-    convmodel = convmodel |> gpu
-else
-    convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
-end
+# runs = cd(readdir, "runs")
+# idx = findfirst("convmodel.jld2" .== runs)
+# if idx !== nothing
+#     @info "starting with existing model"
+#     @load "runs/convmodel.jld2" convmodel
+#     convmodel = convmodel |> gpu
+# else
+#     @info "creating model"
+#     convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
+# end
+ConvModel() = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3])))
+convmodel = ConvModel() |> gpu
 
+
+struct ModelState
+    model
+    loss::Float32
+end
 
 
 function do_training()
     @info "Starting training"
     opt = Flux.setup(Adam(hparams.lr), convmodel)
-    function mycb()
+    function mycb(epoch)
         loss = 0
         correct = 0
         incorrect = 0
-        for (x,y) in test_dataloader
+        img_batch_idx_loss = Tuple{Int, Int, Float32}[]
+
+        # loadercpu = test_dataloader |> cpu
+
+        
+        for (j, (x,y)) in enumerate(test_dataloader)
             ŷ = convmodel(x)
-            # @info ŷ
-            # @info y
-            loss += Flux.logitcrossentropy(ŷ, y)  # did not include softmax in the model
-            correct += count(Flux.onecold(ŷ) .== Flux.onecold(y))
-            incorrect += count(Flux.onecold(ŷ) .!= Flux.onecold(y))
+
+            yhatcpu = ŷ |> cpu
+            ycpu = y |> cpu
+
+
+            for i in axes(ycpu, 2)
+
+                l = Flux.logitcrossentropy(yhatcpu[:, i], ycpu[:, i])  # did not include softmax in the model
+                push!(img_batch_idx_loss, (j, i, l))
+                loss += l
+                if Flux.onecold(yhatcpu[:, i]) == Flux.onecold(ycpu[:, i])
+                    correct += 1
+                else
+                    incorrect += 1
+                end
+            end
         end
+
+        sort!(img_batch_idx_loss; lt = (a, b) -> a[3] < b[3], rev=true)
+
+        toplossimages = map(t -> test[:, :, :, (t[1] - 1)*hparams.batch_size + t[2]], img_batch_idx_loss[1:5])
+        imgbatch = batch([get_img_from_data(img) for img in toplossimages])
+        m = mosaicview(imgbatch)
+        imgsave("output/$epoch.png", m)
+
         @info "Gross loss: $loss"
         loss = loss / length(test_dataloader)
         @info "Gross correct: $correct; gross incorrect: $incorrect"
         acc = 100 * correct / (correct + incorrect)
         @info "Loss: $loss; accuracy: $acc"
-        @save "runs/convmodel.jld2" convmodel
+
+        state = ModelState(Flux.state(convmodel), loss)
+        if ispath("runs/convmodel.jld2")
+            jldopen("runs/convmodel.jld2", "r") do file
+                if file["modelstate"].loss < state.loss
+                    state = file["modelstate"]
+                end
+            end
+        end
+
+        jldsave("runs/convmodel.jld2"; modelstate=state)
+        # @save "runs/convmodel_$epoch.jld2" convmodel |> cpu
     end
     cb = Flux.throttle(mycb, 10)
     for ep in 1:hparams.epochs
@@ -235,7 +310,7 @@ function do_training()
             grads = gradient(m -> logitcrossentropy(m(x), y), convmodel)[1]
             update!(opt, convmodel, grads)
         end
-        cb()
+        cb(ep)
     end
 end
 do_training()

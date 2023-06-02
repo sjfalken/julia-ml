@@ -23,7 +23,7 @@ using CUDA
 datadir = "flower"
 targetsize = (224, 224)
 
-if findfirst("runs", readdir(".")) === nothing
+if findfirst("runs" .== readdir(".")) === nothing
     mkdir("runs")
 end
 

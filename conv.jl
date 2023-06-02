@@ -23,6 +23,10 @@ using CUDA
 datadir = "flower"
 targetsize = (224, 224)
 
+if "runs" not in readdir(".")
+    mkdir("runs")
+end
+
 function crop_and_resize_image(image)
     if (size(image, 1) < size(image, 2))
         newx = size(image, 1)
@@ -192,7 +196,13 @@ function EndLayers(osize)
         Dense(osize, 5),
     )
 end
-convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
+if "convmodel.jld2" in cd(readdir, "runs")
+    @info "starting with existing model"
+    @load "runs/convmodel.jld2" convmodel
+    convmodel = convmodel |> gpu
+else
+    convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
+end
 
 
 

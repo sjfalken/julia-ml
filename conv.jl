@@ -202,11 +202,15 @@ test_dataloader = DataLoader((test, test_labels); batchsize=hparams.batch_size) 
 randinit(shape...) = randn(Float32, shape...)
 function Convolutional()
     return Chain(
-        Conv((8, 8), 3 => 3*32, stride=4, pad=2, init=randinit),
+        Conv((8, 8), 3 => 3*16, stride=4, pad=2, init=randinit),
         MaxPool((4, 4)),
         x->leakyrelu.(x, 0.2f0),
         Dropout(0.2),
-        Conv((4, 4), 3*32 => 3*64, stride=2, pad=1, init=randinit),
+        Conv((2, 2), 3*16 => 3*32, stride=1, pad=2, init=randinit),
+        MaxPool((4, 4)),
+        x->leakyrelu.(x, 0.2f0),
+        Dropout(0.2),
+        Conv((2, 2), 3*32 => 3*64, stride=1, pad=1, init=randinit),
         MaxPool((4, 4)),
         x->leakyrelu.(x, 0.2f0),
         Dropout(0.2),
@@ -280,16 +284,16 @@ function do_training()
 
         sort!(img_batch_idx_loss; lt = (a, b) -> a[3] < b[3], rev=true)
 
-        toplossimages = map(t -> test[:, :, :, (t[1] - 1)*hparams.batch_size + t[2]], img_batch_idx_loss[1:5])
+        toplossimages = map(t -> test[:, :, :, (t[1] - 1)*hparams.batch_size + t[2]], img_batch_idx_loss[1:25])
         imgbatch = batch([get_img_from_data(img) for img in toplossimages])
-        m = mosaicview(imgbatch)
+        m = mosaicview(imgbatch; ncol = 5)
         imgsave("output/$epoch.png", m)
 
         @info "Gross loss: $loss"
-        loss = loss / length(test_dataloader)
+        loss = loss / (correct+incorrect)
         @info "Gross correct: $correct; gross incorrect: $incorrect"
         acc = 100 * correct / (correct + incorrect)
-        @info "Loss: $loss; accuracy: $acc"
+        @info "average loss: $loss; accuracy: $acc"
 
         state = ModelState(Flux.state(convmodel), loss)
         if ispath("runs/convmodel.jld2")

@@ -118,7 +118,7 @@ end
 
 Base.@kwdef struct HyperParams
     batch_size::Int = 128
-    epochs::Int = 40
+    epochs::Int = 100
     verbose_freq::Int = 1000
     lr::Float32 = 0.0002
 end

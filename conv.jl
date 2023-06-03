@@ -21,22 +21,18 @@ using Images: load as imgload, save as imgsave
 using CUDA
 @assert CUDA.functional(true)
 
+Base.@kwdef struct HyperParams
+    batch_size::Int = 32
+    epochs::Int = 300
+    verbose_freq::Int = 1000
+    lr::Float32 = 0.0002
+end
+
 datadir = "flower"
-targetsize = (300, 300)
-# num_images = 5000
+runsdir = "runs"
+targetsize = (200, 200)
 num_images = 5000
 
-if !any("runs" .== readdir("."))
-    mkdir("runs")
-end
-
-if !any("output" .== readdir("."))
-    mkdir("output")
-end
-
-if !any("flower" .== readdir("."))
-    @warn "flower dataset missing"
-end
 
 function crop_and_resize_image(image)
     if (size(image, 1) < size(image, 2))
@@ -62,10 +58,6 @@ struct MyImageIterator
 end
 
 get_image(class, image_name) = imgload(joinpath(datadir, class, image_name))
-
-# function Base.getindex(iter::MyImageIterator, key...)
-#     return Base.iterate()
-# end
 
 function Base.iterate(iter::MyImageIterator, state=1)
     if state > length(iter)
@@ -121,13 +113,8 @@ function images()
 end
 
 function gen_dataset() 
-    # data = Array{Float16, 4}(undef, (128, 128, 3, 0))
-    # labels = Array{UInt8, 2}(undef, (5, 0))
-    # imgs = Vector{Tuple{Array{Float16, 3}, OneHotVector{UInt32}}}()
     datas = Array{Float32, 3}[]
     labels = OneHotVector{UInt32}[]
-
-
     count = 0
     @showprogress for img in images()
         if count >= num_images
@@ -138,42 +125,26 @@ function gen_dataset()
         lbl = img[2]
         label = Flux.onehot(lbl, sort(cd(readdir, datadir)))
         
-        # push!(imgs, (data, label))
         push!(datas, data)
         push!(labels, label)
-        # data = cat(data, onedata; dims=4)
-        # labels = cat(labels, onehotlabel; dims=2)
     end
-    # @save "preprocessed/images.jld2" imgs
     return batch(datas), batch(labels)
-end
-
-Base.@kwdef struct HyperParams
-    batch_size::Int = 32
-    epochs::Int = 300
-    verbose_freq::Int = 1000
-    lr::Float32 = 0.0002
 end
 
 function files_to_tensors(imgs, batchsize) 
     chunks = chunk(imgs;size=batchsize)
     return [batch(chunk) for chunk in chunks]
+end
+if !any("runs" .== readdir("."))
+    mkdir("runs")
+end
 
-    # function get_tensors(chunk)
-    #     # data, label = img
+if !any("output" .== readdir("."))
+    mkdir("output")
+end
 
-    #     datas = Array{Float16, 4}(undef, (targetsize..., 3, 0))
-    #     labels = Array{UInt8, 2}(undef, (5, 0))
-    #     for item in chunk 
-    #         data, label = item
-    #         datas = cat(datas, data; dims=4)
-    #         labels = cat(labels, label; dims=2)
-    #     end
-
-    #     return datas, labels
-    # end
-    
-    # [get_tensors(chunk) for chunk in chunks]
+if !any("flower" .== readdir("."))
+    @warn "flower dataset missing"
 end
 
 @info "Loading data..."
@@ -197,25 +168,21 @@ test_labels = labels[:, test_indices]
 train_dataloader = DataLoader((train, train_labels); batchsize=hparams.batch_size) |> gpu
 test_dataloader = DataLoader((test, test_labels); batchsize=hparams.batch_size) |> gpu
 
-# data = files_to_tensors(train, hparams.batch_size) test_data = only(files_to_tensors(test, length(dataset) - train_count))
-
 randinit(shape...) = randn(Float32, shape...)
 function Convolutional()
     return Chain(
-        Conv((8, 8), 3 => 3*16, stride=4, pad=2, init=randinit),
-        MaxPool((4, 4)),
+        Conv((4, 4), 3 => 3*16, stride=2, pad=2, init=randinit),
         x->leakyrelu.(x, 0.2f0),
-        Dropout(0.2),
         Conv((2, 2), 3*16 => 3*32, stride=1, pad=2, init=randinit),
-        MaxPool((4, 4)),
         x->leakyrelu.(x, 0.2f0),
+        MaxPool((4, 4)),
         Dropout(0.2),
         Conv((2, 2), 3*32 => 3*64, stride=1, pad=1, init=randinit),
-        MaxPool((4, 4)),
         x->leakyrelu.(x, 0.2f0),
-        Dropout(0.2),
+        MaxPool((4, 4)),
     )
 end
+
 convlayers = Convolutional()
 dummy_output = convlayers(data[:, :, :, 1:2])
 
@@ -230,20 +197,8 @@ function EndLayers(osize)
         Dense(osize, 5),
     )
 end
-# runs = cd(readdir, "runs")
-# idx = findfirst("convmodel.jld2" .== runs)
-# if idx !== nothing
-#     @info "starting with existing model"
-#     @load "runs/convmodel.jld2" convmodel
-#     convmodel = convmodel |> gpu
-# else
-#     @info "creating model"
-#     convmodel = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3]))) |> gpu
-# end
+
 ConvModel() = Chain(Convolutional(), EndLayers(reduce(*, size(dummy_output)[1:3])))
-convmodel = ConvModel() |> gpu
-
-
 struct ModelState
     model
     loss::Float32
@@ -258,17 +213,11 @@ function do_training()
         correct = 0
         incorrect = 0
         img_batch_idx_loss = Tuple{Int, Int, Float32}[]
-
-        # loadercpu = test_dataloader |> cpu
-
-        
         for (j, (x,y)) in enumerate(test_dataloader)
             ŷ = convmodel(x)
 
             yhatcpu = ŷ |> cpu
             ycpu = y |> cpu
-
-
             for i in axes(ycpu, 2)
 
                 l = Flux.logitcrossentropy(yhatcpu[:, i], ycpu[:, i])  # did not include softmax in the model
@@ -296,13 +245,13 @@ function do_training()
         @info "average loss: $loss; accuracy: $acc"
 
         state = ModelState(Flux.state(convmodel), loss)
-        if ispath("runs/convmodel.jld2")
-            jldopen("runs/convmodel.jld2", "r") do file
-                if file["modelstate"].loss < state.loss
-                    state = file["modelstate"]
-                end
-            end
-        end
+        # if ispath("runs/convmodel.jld2")
+        #     jldopen("runs/convmodel.jld2", "r") do file
+        #         if file["modelstate"].loss < state.loss
+        #             state = file["modelstate"]
+        #         end
+        #     end
+        # end
 
         jldsave("runs/convmodel.jld2"; modelstate=state)
         # @save "runs/convmodel_$epoch.jld2" convmodel |> cpu
@@ -317,4 +266,5 @@ function do_training()
         cb(ep)
     end
 end
+convmodel = ConvModel() |> gpu
 do_training()

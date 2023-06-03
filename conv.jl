@@ -7,8 +7,8 @@ using Flux
 using Flux.MLUtils: chunk, batch, DataLoader
 using Flux.Optimise: update!, train!
 using Flux.Losses: logitcrossentropy
-using Images
-using ColorTypes: RGB
+using Images, CoordinateTransformations, Rotations
+using ColorTypes 
 using MLDatasets
 using Statistics
 using Printf
@@ -57,30 +57,14 @@ struct MyImageIterator
     index::Int
 end
 
-get_image(class, image_name) = imgload(joinpath(datadir, class, image_name))
+# get_image(class, image_name) = imgload(joinpath(datadir, class, image_name))
 
 function Base.iterate(iter::MyImageIterator, state=1)
     if state > length(iter)
         return nothing
     end
 
-    img = get_image(iter.classes[state], iter.images[state])
-    # img = nothing
-    # while state <= length(iter) && is_too_small(img)
-    #     @info "Skipping state $state"
-    #     state += 1
-    #     if state > length(iter)
-    #         return nothing
-    #     end
-    #     img = get_image(iter.classes[state], iter.images[state])
-    # end
-    cropped = crop_and_resize_image(img)
-    # result = convert(Array{Float32, 3}, permutedims(channelview(cropped), (2, 3, 1)))
-
-    result = permutedims(channelview(cropped), (2, 3, 1))
-    
-    # @info state, iter.classes[state]
-    (result, iter.classes[state]), state+1
+    (iter.classes[state], iter.images[state]), state+1
 end
 
 function get_img_from_data(data)
@@ -89,9 +73,7 @@ function get_img_from_data(data)
     data = convert(Array{N0f8}, clamp.(data .+ 0.5, 0, 1))
     data = permutedims(data, (3, 1, 2))
 
-    # imgsave(path, colorview(RGB, data))
     return colorview(RGB, data)
-    
 end
 
 
@@ -113,28 +95,41 @@ function images()
 end
 
 function gen_dataset() 
-    datas = Array{Float32, 3}[]
+    datas = Array{Float16, 3}[]
     labels = OneHotVector{UInt32}[]
     count = 0
-    @showprogress for img in images()
+    @showprogress for (classname, imgname) in images()
         if count >= num_images
             break
         end
         count += 1
-        data = img[1]
-        lbl = img[2]
-        label = Flux.onehot(lbl, sort(cd(readdir, datadir)))
+
+        # imgs = Array{N0f8, 4}()
+
+        img = imgload(joinpath(datadir, classname, imgname))
+        img = crop_and_resize_image(img)
         
-        push!(datas, data)
-        push!(labels, label)
+        # data1 = permutedims(channelview(img), (2, 3, 1))
+        # imggray = channelview(Gray.(img))
+        # data2 = batch([imggray for _ in 1:3])
+        label = Flux.onehot(classname, sort(cd(readdir, datadir)))
+
+        for i in 1:4
+            rot = recenter(RotMatrix(i*pi/2), center(img))
+            data = warp(img, rot, axes(img))
+            data1 = permutedims(channelview(data), (2, 3, 1))
+            imggray = channelview(Gray.(data))
+            data2 = batch([imggray for _ in 1:3])
+            push!(datas, data1 .- 0.5)
+            push!(datas, data2 .- 0.5)
+            push!(labels, label)
+            push!(labels, label)
+        end
+
     end
     return batch(datas), batch(labels)
 end
 
-function files_to_tensors(imgs, batchsize) 
-    chunks = chunk(imgs;size=batchsize)
-    return [batch(chunk) for chunk in chunks]
-end
 if !any("runs" .== readdir("."))
     mkdir("runs")
 end
@@ -150,7 +145,7 @@ end
 @info "Loading data..."
 # @load "preprocessed/images.jld2" imgs
 data, labels = gen_dataset()
-data = data .- 0.5f0 # normalize
+# data = data .- 0.5f0 # normalize
 
 hparams = HyperParams()
 

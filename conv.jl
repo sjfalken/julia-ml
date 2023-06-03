@@ -18,7 +18,9 @@ using JLD2
 using FixedPointNumbers: N0f8
 using OneHotArrays
 using Images: load as imgload, save as imgsave
+using TensorBoardLogger, Logging
 using CUDA
+using Dates
 @assert CUDA.functional(true)
 
 Base.@kwdef struct HyperParams
@@ -203,6 +205,7 @@ end
 function do_training()
     @info "Starting training"
     opt = Flux.setup(Adam(hparams.lr), convmodel)
+    tb_logger = TBLogger("log/", min_level=Logging.Info)
     function mycb(epoch)
         loss = 0
         correct = 0
@@ -233,22 +236,20 @@ function do_training()
         m = mosaicview(imgbatch; ncol = 5)
         imgsave("output/$epoch.png", m)
 
-        @info "Gross loss: $loss"
-        loss = loss / (correct+incorrect)
-        @info "Gross correct: $correct; gross incorrect: $incorrect"
-        acc = 100 * correct / (correct + incorrect)
-        @info "average loss: $loss; accuracy: $acc"
+        with_logger(tb_logger) do
+            @info "Gross Loss" grossloss=loss
+            loss = loss / (correct+incorrect)
+            @info "Average Loss" avgloss=loss
+            # @info "Gross correct: $correct; gross incorrect: $incorrect"
+            acc = 100 * correct / (correct + incorrect)
+            @info "Correct/Incorrect" correct=correct incorrect=incorrect
+            @info "Accuracy" acc=acc
+            # @info "average loss: $loss; accuracy: $acc"
+        end
 
-        state = ModelState(Flux.state(convmodel), loss)
-        # if ispath("runs/convmodel.jld2")
-        #     jldopen("runs/convmodel.jld2", "r") do file
-        #         if file["modelstate"].loss < state.loss
-        #             state = file["modelstate"]
-        #         end
-        #     end
-        # end
+        state = ModelState(Flux.state(convmodel |> cpu), loss)
 
-        jldsave("runs/convmodel.jld2"; modelstate=state)
+        jldsave("runs/convmodel_$(now())_$epoch.jld2"; modelstate=state)
         # @save "runs/convmodel_$epoch.jld2" convmodel |> cpu
     end
     cb = Flux.throttle(mycb, 10)
@@ -262,4 +263,16 @@ function do_training()
     end
 end
 convmodel = ConvModel() |> gpu
+# if ispath("runs/convmodel.jld2")
+#     @info "Loading model"
+#     jldopen("runs/convmodel.jld2", "r") do file
+#         Flux.loadmodel!(convmodel, file["modelstate"].model)
+#         # if file["modelstate"].loss < state.loss
+#         #     state = file["modelstate"]
+#         # end
+#     end
+# else
+#     exit
+# end
+# convmodel = convmodel |> gpu
 do_training()

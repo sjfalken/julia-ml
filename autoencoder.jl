@@ -5,14 +5,17 @@
 # Pkg.instantiate()
 using MLDatasets
 using Flux: Dense, Chain, Adam, gradient, throttle, withgradient
-using Flux: flatten, mse, gpu, cpu, DataLoader
+using Flux: flatten, mse, gpu, cpu, DataLoader, state
+using JLD2
 using Flux.Optimisers: setup
 using Flux.Optimise: train!, update!
 using CUDA
 using Plots
 using TensorBoardLogger, Logging
 using MIRTjim: jim
-Plots.set_default_backend!(:plotlyjs)
+using Printf
+using Dates
+# Plots.set_default_backend!(:plotlyjs)
 	
 images = MLDatasets.MNIST(:train).features
 # Normalize to [-1, 1]
@@ -37,8 +40,8 @@ decoder = Chain(
 )
 
 model = Chain(
-    encoder,
-    decoder
+    enc = encoder,
+    dec = decoder
 ) |> gpu
 
 
@@ -75,7 +78,7 @@ ep_cb = throttle((i, s) -> logtbimg(i, s), 5)
 
 sample_data = first(data)[:, :, 1:2]
 
-for epoch in 1:100
+for epoch in 1:200
     with_logger(lg) do
         @info "epoch" epoch
         flush(f)
@@ -104,4 +107,8 @@ for epoch in 1:100
     # plot(losses)
     # savefig("output/plot.png")
 end
+
+model_state = state(model |> cpu)
+jldsave("models/autoencoder_$(now()).jld2"; model_state)
+
 

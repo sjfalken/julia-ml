@@ -3,24 +3,26 @@ using Pkg
 # Activate a new project environment in the current directory
 Pkg.activate(".")
 # Add the required packages to the environment
-Pkg.add(["Images", "Flux", "MLDatasets", "CUDA", "Parameters", "ProgressMeter"])
+Pkg.instantiate()
+# Pkg.add(["Images", "Flux", "MLDatasets", "CUDA", "Parameters", "ProgressMeter"])
 using Base.Iterators: partition
 using Flux
 using Flux.Optimise: update!
 using Flux.Losses: logitbinarycrossentropy
 using Images
+using MLUtils
 using MLDatasets
 using Statistics
 using Printf
 using Random
 using CUDA
-using ProgressMeter
+using ProgressMeter: @showprogress
 CUDA.allowscalar(false)
 
 Base.@kwdef struct HyperParams
     batch_size::Int = 128
     latent_dim::Int = 100
-    epochs::Int = 20
+    epochs::Int = 200
     verbose_freq::Int = 1000
     output_x::Int = 6
     output_y::Int = 6
@@ -76,7 +78,7 @@ end
 generator_loss(fake_output) = logitbinarycrossentropy(fake_output, 1)
 
 function train_discriminator!(gen, dscr, x, opt_dscr, hparams)
-    noise = randn!(similar(x, (hparams.latent_dim, hparams.batch_size))) 
+    noise = randn!(similar(x, (hparams.latent_dim, hparams.batch_size)))
     fake_input = gen(noise)
     # Taking gradient
     loss, grads = Flux.withgradient(dscr) do dscr
@@ -111,7 +113,8 @@ function train(; kws...)
     # Normalize to [-1, 1]
     image_tensor = reshape(@.(2f0 * images - 1f0), 28, 28, 1, :)
     # Partition into batches
-    data = [image_tensor[:, :, :, r] |> gpu for r in partition(1:60000, hparams.batch_size)]
+    data = DataLoader(image_tensor |> gpu, batchsize = hparams.batch_size)
+    # data = [image_tensor[:, :, :, r] |> gpu for r in partition(1:60000, hparams.batch_size)]
 
     fixed_noise = [randn(Float32, hparams.latent_dim, 1) |> gpu for _=1:hparams.output_x*hparams.output_y]
 

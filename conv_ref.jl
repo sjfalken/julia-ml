@@ -3,7 +3,10 @@
 
 # This example uses a GPU if you have one.
 # And demonstrates how to save model state.
+using Pkg
 
+Pkg.activate(".")
+Pkg.instantiate()
 using MLDatasets, Flux, JLD2, CUDA  # this will install everything if necc.
 
 folder = "runs"  # sub-directory in which to save

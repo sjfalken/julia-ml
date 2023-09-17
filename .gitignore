@@ -7,3 +7,5 @@ preprocessed
 .ipynb_checkpoints
 *.log
 *.tar.gz
+log.txt
+tb_logs

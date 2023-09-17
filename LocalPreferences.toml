@@ -1,2 +1,5 @@
 [Flux]
 gpu_backend = "CUDA"
+
+[Plots]
+default_backend = "plotlyjs"

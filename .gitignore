@@ -10,3 +10,5 @@ preprocessed
 log.txt
 tb_logs
 models
+datasets
+preprocessed

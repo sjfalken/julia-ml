@@ -3,7 +3,6 @@ using Pkg
 # Activate a new project environment in the current directory
 Pkg.activate(".")
 # Add the required packages to the environment
-Pkg.instantiate()
 # Pkg.add(["Images", "Flux", "MLDatasets", "CUDA", "Parameters", "ProgressMeter"])
 using Base.Iterators: partition
 using Flux

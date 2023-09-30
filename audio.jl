@@ -88,10 +88,6 @@ function logtbloss(epoch)
     y = y |> cpu
     ŷ = ŷ |> cpu
 
-    display(test_data)
-    display(y)
-    display(ŷ)
-
     guess(i) = argmax(softmax(ŷ[:, i]; dims=1)) 
     actual(i) = onecold(y[:, i])
     accuracy = sum([guess(i) == actual(i) for i in axes(y, 2)]) / size(y, 2)

@@ -59,12 +59,12 @@ data = DataLoader((train_data, train_labels) |> dev, batchsize = batch_size)
 
 @info "Setting up model..."
 audioconv = @autosize (98, 13, 1, batch_size) Chain(
-    Conv((8, 4), 1 => 4, relu; stride = (4, 2), pad = 1),
-    Conv((4, 2), 4 => 8, relu; stride = (4, 1), pad = 1),
-    Conv((4, 2), 8 => 8, relu; stride = 1, pad = 1),
+    Conv((8, 4), 1 => 4, tanh; stride = (8, 2), pad = 1),
+    # Conv((4, 2), 4 => 8, tanh; stride = (4, 1), pad = 1),
+    # Conv((4, 2), 8 => 8, tanh; stride = 1, pad = 1),
     MLUtils.flatten,
-    Dense(_ => 128),
-    Dense(128 => 10)
+    # Dense(_ => 128, tanh),
+    Dense(_ => 10)
 )
 
 model = audioconv |> gpu
@@ -84,11 +84,16 @@ function logtbloss(epoch)
     ŷ = model(test_data)
     y = test_labels
 
+    loss = logitcrossentropy(ŷ, y; dims=1)
+    y = y |> cpu
+    ŷ = ŷ |> cpu
+
+    display(test_data)
     display(y)
     display(ŷ)
-    loss = logitcrossentropy(ŷ, y; dims=1)
-    guess(i) = argmax((ŷ |> cpu)[:, i]) 
-    actual(i) = onecold((y |> cpu)[:, i])
+
+    guess(i) = argmax(softmax(ŷ[:, i]; dims=1)) 
+    actual(i) = onecold(y[:, i])
     accuracy = sum([guess(i) == actual(i) for i in axes(y, 2)]) / size(y, 2)
 
     with_logger(tblg) do
